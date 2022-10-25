@@ -29,6 +29,9 @@ import {
   createInstancePickingMaterial,
   createPickingMaterial,
   createPoints,
+  createStixelGeometry,
+  createStixelMaterial,
+  createStixels,
   DEFAULT_SETTINGS,
   LayerSettingsPointCloudAndLaserScan,
   PointCloudAndLaserScanRenderable,
@@ -235,6 +238,12 @@ export class VelodyneScans extends SceneExtension<PointCloudAndLaserScanRenderab
         pickingMaterial,
         instancePickingMaterial,
       );
+      const stixelGeometry = createStixelGeometry(
+        topic,
+        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
+      );
+      const stixelMaterial = createStixelMaterial(settings);
+      const stixels = createStixels(topic, pointCloud.pose, stixelGeometry, stixelMaterial);
 
       const messageTime = toNanoSec(pointCloud.timestamp);
       renderable = new PointCloudAndLaserScanRenderable(topic, this.renderer, {
@@ -251,8 +260,11 @@ export class VelodyneScans extends SceneExtension<PointCloudAndLaserScanRenderab
         material,
         pickingMaterial,
         instancePickingMaterial,
+        stixelsHistory: [{ receiveTime, messageTime, stixels }],
+        stixelMaterial,
       });
       renderable.add(points);
+      renderable.add(stixels);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);

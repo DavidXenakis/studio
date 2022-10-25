@@ -62,11 +62,14 @@ export type LayerSettingsPointCloudAndLaserScan = BaseSettings &
     pointSize: number;
     pointShape: "circle" | "square";
     decayTime: number;
+    stixel: boolean;
   };
 
 type Material = THREE.PointsMaterial | LaserScanMaterial;
 type Points = THREE.Points<DynamicBufferGeometry, Material>;
 type PointsAtTime = { receiveTime: bigint; messageTime: bigint; points: Points };
+type Stixels = THREE.LineSegments<DynamicBufferGeometry, THREE.LineBasicMaterial>;
+type StixelsAtTime = { receiveTime: bigint; messageTime: bigint; stixels: Stixels };
 
 type PointCloudFieldReaders = {
   xReader: FieldReader;
@@ -101,6 +104,8 @@ type PointCloudAndLaserScanUserData = BaseUserData & {
   material: Material;
   pickingMaterial: THREE.ShaderMaterial | LaserScanMaterial;
   instancePickingMaterial: THREE.ShaderMaterial | LaserScanMaterial;
+  stixelsHistory: StixelsAtTime[];
+  stixelMaterial: THREE.LineBasicMaterial;
 };
 
 const DEFAULT_POINT_SIZE = 1.5;
@@ -125,6 +130,7 @@ export const DEFAULT_SETTINGS: LayerSettingsPointCloudAndLaserScan = {
   explicitAlpha: 1,
   minValue: undefined,
   maxValue: undefined,
+  stixel: false,
 };
 
 const ALL_POINTCLOUD_DATATYPES = new Set<string>([
@@ -178,20 +184,34 @@ export function createGeometry(topic: string, usage: THREE.Usage): DynamicBuffer
   return geometry;
 }
 
+export function createStixelGeometry(topic: string, usage: THREE.Usage): DynamicBufferGeometry {
+  const geometry = new DynamicBufferGeometry(usage);
+  geometry.name = `${topic}:PointCloud:stixelGeometry`;
+  geometry.createAttribute("position", Float32Array, 3);
+  geometry.createAttribute("color", Float32Array, 4, true);
+  return geometry;
+}
+
 export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLaserScanUserData> {
   public override pickableInstances = true;
 
   public override dispose(): void {
+    debugger;
     this.userData.pointCloud = undefined;
     this.userData.laserScan = undefined;
     this.userData.originalMessage = undefined;
     for (const entry of this.userData.pointsHistory) {
       entry.points.geometry.dispose();
     }
+    for (const entry of this.userData.stixelsHistory) {
+      entry.stixels.geometry.dispose();
+    }
     this.userData.pointsHistory.length = 0;
+    this.userData.stixelsHistory.length = 0;
     this.userData.material.dispose();
     this.userData.pickingMaterial.dispose();
     this.userData.instancePickingMaterial.dispose();
+    this.userData.stixelMaterial.dispose();
     super.dispose();
   }
 
@@ -249,12 +269,13 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
 
     const prevSettings = this.userData.settings;
     this.userData.settings = settings;
-
     let material = this.userData.material as THREE.PointsMaterial;
+    let stixelMaterial = this.userData.stixelMaterial;
     const needsRebuild =
       colorHasTransparency(settings) !== material.transparent ||
       pointCloudColorEncoding(settings) !== pointCloudColorEncoding(prevSettings) ||
-      settings.pointShape !== prevSettings.pointShape;
+      settings.pointShape !== prevSettings.pointShape ||
+      settings.stixel !== prevSettings.stixel;
 
     if (needsRebuild) {
       material.dispose();
@@ -262,6 +283,12 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       this.userData.material = material;
       for (const entry of this.userData.pointsHistory) {
         entry.points.material = material;
+      }
+      stixelMaterial.dispose();
+      stixelMaterial = createStixelMaterial(settings);
+      this.userData.stixelMaterial = stixelMaterial;
+      for (const entry of this.userData.stixelsHistory) {
+        entry.stixels.material = stixelMaterial;
       }
     } else {
       material.size = settings.pointSize;
@@ -279,6 +306,7 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
 
     const topic = this.userData.topic;
     const pointsHistory = this.userData.pointsHistory;
+    const stixelsHistory = this.userData.stixelsHistory;
     const isDecay = settings.decayTime > 0;
     if (isDecay) {
       // Push a new (empty) entry to the history of points
@@ -293,11 +321,20 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       );
       pointsHistory.push({ receiveTime, messageTime, points });
       this.add(points);
+
+      const stixelGeometry = createStixelGeometry(topic, THREE.StaticDrawUsage);
+      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial)
+      stixelsHistory.push({ receiveTime, messageTime, stixels });
+      this.add(stixels);
     }
 
     const latestEntry = pointsHistory[pointsHistory.length - 1];
     if (!latestEntry) {
       throw new Error(`pointsHistory is empty for ${topic}`);
+    }
+    const latestStixelEntry = stixelsHistory[stixelsHistory.length - 1];
+    if (!latestStixelEntry) {
+      throw new Error(`stixelsHistory is empty for ${topic}`);
     }
 
     latestEntry.receiveTime = receiveTime;
@@ -308,6 +345,14 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     const positionAttribute = latestEntry.points.geometry.attributes.position!;
     const colorAttribute = latestEntry.points.geometry.attributes.color!;
 
+    if (settings.stixel) {
+      latestStixelEntry.stixels.geometry.resize(pointCount * 2);
+    } else {
+      latestStixelEntry.stixels.geometry.resize(0);
+    }
+    const stixelPositionAttribute = latestStixelEntry.stixels.geometry.attributes.position!;
+    const stixelColorAttribute = latestStixelEntry.stixels.geometry.attributes.color!;
+
     // Iterate the point cloud data to update position and color attributes
     this._updatePointCloudBuffers(
       pointCloud,
@@ -316,6 +361,8 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       settings,
       positionAttribute,
       colorAttribute,
+      stixelPositionAttribute,
+      stixelColorAttribute,
     );
   }
 
@@ -553,6 +600,8 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     settings: LayerSettingsPointCloudAndLaserScan,
     positionAttribute: THREE.BufferAttribute,
     colorAttribute: THREE.BufferAttribute,
+    stixelPositionAttribute: THREE.BufferAttribute,
+    stixelColorAttribute: THREE.BufferAttribute,
   ): void {
     const data = pointCloud.data;
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -575,19 +624,25 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       const y = yReader(view, pointOffset);
       const z = zReader(view, pointOffset);
       positionAttribute.setXYZ(i, x, y, z);
+      if (settings.stixel) {
+        stixelPositionAttribute?.setXYZ(i*2, x, y, z);
+        stixelPositionAttribute?.setXYZ(i*2+1, x, y, 0);
+      }
     }
 
     // Update color attribute
     if (settings.colorMode === "rgba-fields") {
       for (let i = 0; i < pointCount; i++) {
         const pointOffset = i * pointStep;
-        colorAttribute.setXYZW(
-          i,
-          (redReader(view, pointOffset) * 255) | 0,
-          (greenReader(view, pointOffset) * 255) | 0,
-          (blueReader(view, pointOffset) * 255) | 0,
-          (alphaReader(view, pointOffset) * 255) | 0,
-        );
+        const r = (redReader(view, pointOffset) * 255) | 0;
+        const g = (greenReader(view, pointOffset) * 255) | 0;
+        const b = (blueReader(view, pointOffset) * 255) | 0;
+        const a = (alphaReader(view, pointOffset) * 255) | 0;
+        colorAttribute.setXYZW(i, r, g, b, a);
+        if (settings.stixel) {
+          stixelColorAttribute?.setXYZW(i*2, r, g, b, a);
+          stixelColorAttribute?.setXYZW(i*2+1, r, g, b, a);
+        }
       }
     } else {
       // Iterate the point cloud data to determine min/max color values (if needed)
@@ -612,18 +667,22 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
         const pointOffset = i * pointStep;
         const colorValue = packedColorReader(view, pointOffset);
         colorConverter(tempColor, colorValue);
-        colorAttribute.setXYZW(
-          i,
-          (tempColor.r * 255) | 0,
-          (tempColor.g * 255) | 0,
-          (tempColor.b * 255) | 0,
-          (tempColor.a * 255) | 0,
-        );
+        const r = (tempColor.r * 255) | 0;
+        const g = (tempColor.g * 255) | 0;
+        const b = (tempColor.b * 255) | 0;
+        const a = (tempColor.a * 255) | 0;
+        colorAttribute.setXYZW( i, r, g, b, a);
+        if (settings.stixel) {
+          stixelColorAttribute?.setXYZW(i*2, r, g, b, a);
+          stixelColorAttribute?.setXYZW(i*2+1, r, g, b, a);
+        }
       }
     }
 
     positionAttribute.needsUpdate = true;
     colorAttribute.needsUpdate = true;
+    stixelPositionAttribute.needsUpdate = true;
+    stixelColorAttribute.needsUpdate = true;
   }
 
   public updateLaserScan(
@@ -762,6 +821,11 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       for (const entry of pointsHistory.splice(0, pointsHistory.length - 1)) {
         entry.points.geometry.dispose();
         this.remove(entry.points);
+      }
+      const stixelsHistory = this.userData.stixelsHistory;
+      for (const entry of stixelsHistory.splice(0, stixelsHistory.length - 1)) {
+        entry.stixels.geometry.dispose();
+        this.remove(entry.stixels);
       }
       return;
     }
@@ -938,6 +1002,13 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         instancePickingMaterial,
       );
 
+      const stixelGeometry = createStixelGeometry(
+        topic,
+        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
+      );
+      const stixelMaterial = createStixelMaterial(settings);
+      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
+
       const messageTime = toNanoSec(pointCloud.timestamp);
       renderable = new PointCloudAndLaserScanRenderable(topic, this.renderer, {
         receiveTime,
@@ -953,8 +1024,11 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         material,
         pickingMaterial,
         instancePickingMaterial,
+        stixelsHistory: [{ receiveTime, messageTime, stixels }],
+        stixelMaterial,
       });
       renderable.add(points);
+      renderable.add(stixels);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);
@@ -1018,6 +1092,12 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         pickingMaterial,
         instancePickingMaterial,
       );
+      const stixelGeometry = createStixelGeometry(
+        topic,
+        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
+      );
+      const stixelMaterial = createStixelMaterial(settings);
+      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
 
       const messageTime = toNanoSec(pointCloud.header.stamp);
       renderable = new PointCloudAndLaserScanRenderable(topic, this.renderer, {
@@ -1034,8 +1114,11 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         material,
         pickingMaterial,
         instancePickingMaterial,
+        stixelsHistory: [{ receiveTime, messageTime, stixels }],
+        stixelMaterial,
       });
       renderable.add(points);
+      renderable.add(stixels);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);
@@ -1102,6 +1185,13 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
       geometry.createAttribute("position", Float32Array, 1);
       geometry.createAttribute("color", Uint8Array, 4, true);
 
+      const stixelGeometry = createStixelGeometry(
+        topic,
+        THREE.DynamicDrawUsage,
+      );
+      const stixelMaterial = createStixelMaterial(settings);
+      const stixels = createStixels(topic, makePose(), stixelGeometry, stixelMaterial)
+
       const material = new LaserScanMaterial();
       const pickingMaterial = new LaserScanMaterial({ picking: true });
       const instancePickingMaterial = new LaserScanInstancePickingMaterial();
@@ -1132,8 +1222,11 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         material,
         pickingMaterial,
         instancePickingMaterial,
+        stixelsHistory: [{ receiveTime, messageTime, stixels }],
+        stixelMaterial,
       });
       renderable.add(points);
+      renderable.add(stixels);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);
@@ -1182,6 +1275,15 @@ export function pointCloudMaterial(
     }
   };
 
+  return material;
+}
+
+export function createStixelMaterial(settings: LayerSettingsPointCloudAndLaserScan): THREE.LineBasicMaterial {
+  const transparent = colorHasTransparency(settings);
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent,
+  })
   return material;
 }
 
@@ -1496,6 +1598,7 @@ export function pointCloudSettingsNode(
   const pointSize = config.pointSize;
   const pointShape = config.pointShape ?? "circle";
   const decayTime = config.decayTime;
+  const stixel = config.stixel
 
   const node = baseColorModeSettingsNode(msgFields, config, topic, DEFAULT_SETTINGS, {
     supportsPackedRgbModes: ROS_POINTCLOUD_DATATYPES.has(topic.schemaName),
@@ -1515,6 +1618,11 @@ export function pointCloudSettingsNode(
       input: "select",
       options: POINT_SHAPE_OPTIONS,
       value: pointShape,
+    },
+    stixel: {
+      label: "Stixel view",
+      input: "boolean",
+      value: stixel,
     },
     decayTime: {
       label: "Decay time",
@@ -1592,6 +1700,21 @@ export function createPoints(
     pose,
   };
   return points;
+}
+
+export function createStixels(
+  topic: string,
+  pose: Pose,
+  geometry: DynamicBufferGeometry,
+  material: THREE.LineBasicMaterial,
+): Stixels {
+  const stixels = new THREE.LineSegments<DynamicBufferGeometry, THREE.LineBasicMaterial>(geometry, material);
+  // We don't calculate the bounding sphere for points, so frustum culling is disabled
+  stixels.name = `${topic}:PointCloud:stixels`;
+  stixels.userData = {
+    pose,
+  };
+  return stixels;
 }
 
 function normalizePointField(field: PartialMessage<PointField> | undefined): PointField {
