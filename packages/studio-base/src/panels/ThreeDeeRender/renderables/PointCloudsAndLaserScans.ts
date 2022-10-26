@@ -196,7 +196,6 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
   public override pickableInstances = true;
 
   public override dispose(): void {
-    debugger;
     this.userData.pointCloud = undefined;
     this.userData.laserScan = undefined;
     this.userData.originalMessage = undefined;
@@ -323,7 +322,7 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       this.add(points);
 
       const stixelGeometry = createStixelGeometry(topic, THREE.StaticDrawUsage);
-      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial)
+      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
       stixelsHistory.push({ receiveTime, messageTime, stixels });
       this.add(stixels);
     }
@@ -832,6 +831,7 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
 
     // Remove expired entries from the history of points when decayTime is enabled
     const pointsHistory = this.userData.pointsHistory;
+    const stixelsHistory = this.userData.stixelsHistory;
     const decayTime = this.userData.settings.decayTime;
     const expireTime =
       decayTime > 0 ? currentTime - BigInt(Math.round(decayTime * 1e9)) : MAX_DURATION;
@@ -839,6 +839,12 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       const entry = this.userData.pointsHistory.shift()!;
       this.remove(entry.points);
       entry.points.geometry.dispose();
+    }
+
+    while (stixelsHistory.length > 1 && stixelsHistory[0]!.receiveTime < expireTime) {
+      const entry = this.userData.stixelsHistory.shift()!;
+      this.remove(entry.stixels);
+      entry.stixels.geometry.dispose();
     }
 
     // Update the pose on each THREE.Points entry
@@ -1185,12 +1191,9 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
       geometry.createAttribute("position", Float32Array, 1);
       geometry.createAttribute("color", Uint8Array, 4, true);
 
-      const stixelGeometry = createStixelGeometry(
-        topic,
-        THREE.DynamicDrawUsage,
-      );
+      const stixelGeometry = createStixelGeometry(topic, THREE.DynamicDrawUsage);
       const stixelMaterial = createStixelMaterial(settings);
-      const stixels = createStixels(topic, makePose(), stixelGeometry, stixelMaterial)
+      const stixels = createStixels(topic, laserScan.pose, stixelGeometry, stixelMaterial);
 
       const material = new LaserScanMaterial();
       const pickingMaterial = new LaserScanMaterial({ picking: true });
@@ -1278,12 +1281,14 @@ export function pointCloudMaterial(
   return material;
 }
 
-export function createStixelMaterial(settings: LayerSettingsPointCloudAndLaserScan): THREE.LineBasicMaterial {
+export function createStixelMaterial(
+  settings: LayerSettingsPointCloudAndLaserScan,
+): THREE.LineBasicMaterial {
   const transparent = colorHasTransparency(settings);
   const material = new THREE.LineBasicMaterial({
     vertexColors: true,
     transparent,
-  })
+  });
   return material;
 }
 
@@ -1598,7 +1603,7 @@ export function pointCloudSettingsNode(
   const pointSize = config.pointSize;
   const pointShape = config.pointShape ?? "circle";
   const decayTime = config.decayTime;
-  const stixel = config.stixel
+  const stixel = config.stixel;
 
   const node = baseColorModeSettingsNode(msgFields, config, topic, DEFAULT_SETTINGS, {
     supportsPackedRgbModes: ROS_POINTCLOUD_DATATYPES.has(topic.schemaName),
@@ -1708,8 +1713,12 @@ export function createStixels(
   geometry: DynamicBufferGeometry,
   material: THREE.LineBasicMaterial,
 ): Stixels {
-  const stixels = new THREE.LineSegments<DynamicBufferGeometry, THREE.LineBasicMaterial>(geometry, material);
+  const stixels = new THREE.LineSegments<DynamicBufferGeometry, THREE.LineBasicMaterial>(
+    geometry,
+    material,
+  );
   // We don't calculate the bounding sphere for points, so frustum culling is disabled
+  stixels.frustumCulled = false;
   stixels.name = `${topic}:PointCloud:stixels`;
   stixels.userData = {
     pose,
