@@ -969,98 +969,29 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
     const topic = messageEvent.topic;
     const pointCloud = normalizePointCloud(messageEvent.message);
     const receiveTime = toNanoSec(messageEvent.receiveTime);
-
-    let renderable = this.renderables.get(topic);
-    if (!renderable) {
-      // Set the initial settings from default values merged with any user settings
-      const userSettings = this.renderer.config.topics[topic] as
-        | Partial<LayerSettingsPointCloudAndLaserScan>
-        | undefined;
-      const settings = { ...DEFAULT_SETTINGS, ...userSettings };
-      if (settings.colorField == undefined) {
-        autoSelectColorField(settings, pointCloud, { supportsPackedRgbModes: false });
-
-        // Update user settings with the newly selected color field
-        this.renderer.updateConfig((draft) => {
-          const updatedUserSettings = { ...userSettings };
-          updatedUserSettings.colorField = settings.colorField;
-          updatedUserSettings.colorMode = settings.colorMode;
-          updatedUserSettings.colorMap = settings.colorMap;
-          draft.topics[topic] = updatedUserSettings;
-        });
-      }
-
-      const isDecay = settings.decayTime > 0;
-      const geometry = createGeometry(
-        topic,
-        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
-      );
-
-      const material = pointCloudMaterial(settings);
-      const pickingMaterial = createPickingMaterial(settings);
-      const instancePickingMaterial = createInstancePickingMaterial(settings);
-      const points = createPoints(
-        topic,
-        getPose(pointCloud),
-        geometry,
-        material,
-        pickingMaterial,
-        instancePickingMaterial,
-      );
-
-      const stixelGeometry = createStixelGeometry(
-        topic,
-        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
-      );
-      const stixelMaterial = createStixelMaterial(settings);
-      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
-
-      const messageTime = toNanoSec(pointCloud.timestamp);
-      renderable = new PointCloudAndLaserScanRenderable(topic, this.renderer, {
-        receiveTime,
-        messageTime,
-        frameId: this.renderer.normalizeFrameId(pointCloud.frame_id),
-        pose: makePose(),
-        settingsPath: ["topics", topic],
-        settings,
-        topic,
-        pointCloud,
-        originalMessage: messageEvent.message as RosObject,
-        pointsHistory: [{ receiveTime, messageTime, points }],
-        material,
-        pickingMaterial,
-        instancePickingMaterial,
-        stixelsHistory: [{ receiveTime, messageTime, stixels }],
-        stixelMaterial,
-      });
-      renderable.add(points);
-      renderable.add(stixels);
-
-      this.add(renderable);
-      this.renderables.set(topic, renderable);
-    }
-
-    // Update the mapping of topic to point cloud field names if necessary
-    let fields = this.pointCloudFieldsByTopic.get(topic);
-    if (!fields || fields.length !== pointCloud.fields.length) {
-      fields = pointCloud.fields.map((field) => field.name);
-      this.pointCloudFieldsByTopic.set(topic, fields);
-      this.updateSettingsTree();
-    }
-
-    renderable.updatePointCloud(
-      pointCloud,
-      messageEvent.message as RosObject,
-      renderable.userData.settings,
-      receiveTime,
-    );
+    const messageTime = toNanoSec(pointCloud.timestamp);
+    const frameId = pointCloud.frame_id;
+    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId, false);
   };
 
   private handleRosPointCloud = (messageEvent: PartialMessageEvent<PointCloud2>): void => {
     const topic = messageEvent.topic;
     const pointCloud = normalizePointCloud2(messageEvent.message);
     const receiveTime = toNanoSec(messageEvent.receiveTime);
+    const messageTime = toNanoSec(pointCloud.header.stamp);
+    const frameId = pointCloud.header.frame_id;
+    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId, true);
+  };
 
+  private handlePointCloud(
+    topic: string,
+    pointCloud: PointCloud | PointCloud2,
+    receiveTime: bigint,
+    messageTime: bigint,
+    originalMessage: RosObject,
+    frameId: string,
+    isPointCloud2: boolean,
+  ) {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
       // Set the initial settings from default values merged with any user settings
@@ -1105,17 +1036,16 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
       const stixelMaterial = createStixelMaterial(settings);
       const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
 
-      const messageTime = toNanoSec(pointCloud.header.stamp);
       renderable = new PointCloudAndLaserScanRenderable(topic, this.renderer, {
         receiveTime,
         messageTime,
-        frameId: this.renderer.normalizeFrameId(pointCloud.header.frame_id),
+        frameId: this.renderer.normalizeFrameId(frameId),
         pose: makePose(),
         settingsPath: ["topics", topic],
         settings,
         topic,
         pointCloud,
-        originalMessage: messageEvent.message as RosObject,
+        originalMessage,
         pointsHistory: [{ receiveTime, messageTime, points }],
         material,
         pickingMaterial,
@@ -1132,26 +1062,30 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
 
     // Update the mapping of topic to point cloud field names if necessary
     let fields = this.pointCloudFieldsByTopic.get(topic);
-    // filter count to compare only supported fields
-    const numSupportedFields = pointCloud.fields.reduce((numSupported, field) => {
-      return numSupported + (isSupportedField(field) ? 1 : 0);
-    }, 0);
-    if (!fields || fields.length !== numSupportedFields) {
-      // Omit fields with count != 1
-      fields = filterMap(pointCloud.fields, (field) =>
-        isSupportedField(field) ? field.name : undefined,
-      );
-      this.pointCloudFieldsByTopic.set(topic, fields);
-      this.updateSettingsTree();
+
+    if (isPointCloud2) {
+      const pointCloud2 = pointCloud as PointCloud2
+      // filter count to compare only supported fields
+      const numSupportedFields = pointCloud2.fields.reduce((numSupported, field) => {
+        return numSupported + (isSupportedField(field) ? 1 : 0);
+      }, 0);
+      if (!fields || fields.length !== numSupportedFields) {
+        // Omit fields with count != 1
+        fields = filterMap(pointCloud2.fields, (field) =>
+          isSupportedField(field) ? field.name : undefined,
+        );
+        this.pointCloudFieldsByTopic.set(topic, fields);
+        this.updateSettingsTree();
+      }
     }
 
     renderable.updatePointCloud(
       pointCloud,
-      messageEvent.message as RosObject,
+      originalMessage,
       renderable.userData.settings,
       receiveTime,
     );
-  };
+  }
 
   private handleLaserScan = (
     messageEvent: PartialMessageEvent<RosLaserScan | FoxgloveLaserScan>,
