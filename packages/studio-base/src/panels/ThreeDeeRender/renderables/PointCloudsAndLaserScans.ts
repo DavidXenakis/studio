@@ -104,8 +104,8 @@ type PointCloudAndLaserScanUserData = BaseUserData & {
   material: Material;
   pickingMaterial: THREE.ShaderMaterial | LaserScanMaterial;
   instancePickingMaterial: THREE.ShaderMaterial | LaserScanMaterial;
-  stixelsHistory: StixelsAtTime[];
-  stixelMaterial: THREE.LineBasicMaterial;
+  stixelsHistory?: StixelsAtTime[];
+  stixelMaterial?: THREE.LineBasicMaterial;
 };
 
 const DEFAULT_POINT_SIZE = 1.5;
@@ -188,7 +188,7 @@ export function createStixelGeometry(topic: string, usage: THREE.Usage): Dynamic
   const geometry = new DynamicBufferGeometry(usage);
   geometry.name = `${topic}:PointCloud:stixelGeometry`;
   geometry.createAttribute("position", Float32Array, 3);
-  geometry.createAttribute("color", Float32Array, 4, true);
+  geometry.createAttribute("color", Uint8Array, 4, true);
   return geometry;
 }
 
@@ -202,15 +202,15 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     for (const entry of this.userData.pointsHistory) {
       entry.points.geometry.dispose();
     }
-    for (const entry of this.userData.stixelsHistory) {
+    for (const entry of this.userData.stixelsHistory ?? []) {
       entry.stixels.geometry.dispose();
     }
     this.userData.pointsHistory.length = 0;
-    this.userData.stixelsHistory.length = 0;
+    this.userData.stixelsHistory && (this.userData.stixelsHistory.length = 0);
     this.userData.material.dispose();
     this.userData.pickingMaterial.dispose();
     this.userData.instancePickingMaterial.dispose();
-    this.userData.stixelMaterial.dispose();
+    this.userData.stixelMaterial?.dispose();
     super.dispose();
   }
 
@@ -258,6 +258,7 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     settings: LayerSettingsPointCloudAndLaserScan,
     receiveTime: bigint,
   ): void {
+
     const messageTime = toNanoSec(getTimestamp(pointCloud));
     this.userData.receiveTime = receiveTime;
     this.userData.messageTime = messageTime;
@@ -269,7 +270,9 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     const prevSettings = this.userData.settings;
     this.userData.settings = settings;
     let material = this.userData.material as THREE.PointsMaterial;
-    let stixelMaterial = this.userData.stixelMaterial;
+    let stixelMaterial = this.userData.stixelMaterial!;
+    const pointsHistory = this.userData.pointsHistory;
+    const stixelsHistory = this.userData.stixelsHistory!;
     const needsRebuild =
       colorHasTransparency(settings) !== material.transparent ||
       pointCloudColorEncoding(settings) !== pointCloudColorEncoding(prevSettings) ||
@@ -286,7 +289,7 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       stixelMaterial.dispose();
       stixelMaterial = createStixelMaterial(settings);
       this.userData.stixelMaterial = stixelMaterial;
-      for (const entry of this.userData.stixelsHistory) {
+      for (const entry of stixelsHistory) {
         entry.stixels.material = stixelMaterial;
       }
     } else {
@@ -304,8 +307,6 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     }
 
     const topic = this.userData.topic;
-    const pointsHistory = this.userData.pointsHistory;
-    const stixelsHistory = this.userData.stixelsHistory;
     const isDecay = settings.decayTime > 0;
     if (isDecay) {
       // Push a new (empty) entry to the history of points
@@ -320,22 +321,18 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       );
       pointsHistory.push({ receiveTime, messageTime, points });
       this.add(points);
-
-      const stixelGeometry = createStixelGeometry(topic, THREE.StaticDrawUsage);
-      const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
-      stixelsHistory.push({ receiveTime, messageTime, stixels });
-      this.add(stixels);
+      if (settings.stixel) {
+        const stixelGeometry = createStixelGeometry(topic, THREE.StaticDrawUsage);
+        const stixels = createStixels(topic, getPose(pointCloud), stixelGeometry, stixelMaterial);
+        stixelsHistory.push({ receiveTime, messageTime, stixels });
+        this.add(stixels);
+      }
     }
 
     const latestEntry = pointsHistory[pointsHistory.length - 1];
     if (!latestEntry) {
       throw new Error(`pointsHistory is empty for ${topic}`);
     }
-    const latestStixelEntry = stixelsHistory[stixelsHistory.length - 1];
-    if (!latestStixelEntry) {
-      throw new Error(`stixelsHistory is empty for ${topic}`);
-    }
-
     latestEntry.receiveTime = receiveTime;
     latestEntry.messageTime = messageTime;
 
@@ -344,13 +341,19 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
     const positionAttribute = latestEntry.points.geometry.attributes.position!;
     const colorAttribute = latestEntry.points.geometry.attributes.color!;
 
+    const latestStixelEntry = stixelsHistory[stixelsHistory.length - 1]!;
+    if (!latestStixelEntry) {
+      throw new Error(`stixelsHistory is empty for ${topic}`);
+    }
+    latestStixelEntry.receiveTime = receiveTime;
+    latestStixelEntry.messageTime = messageTime;
+    const stixelPositionAttribute = latestStixelEntry.stixels.geometry.attributes.position!;
+    const stixelColorAttribute = latestStixelEntry.stixels.geometry.attributes.color!;
     if (settings.stixel) {
       latestStixelEntry.stixels.geometry.resize(pointCount * 2);
     } else {
       latestStixelEntry.stixels.geometry.resize(0);
     }
-    const stixelPositionAttribute = latestStixelEntry.stixels.geometry.attributes.position!;
-    const stixelColorAttribute = latestStixelEntry.stixels.geometry.attributes.color!;
 
     // Iterate the point cloud data to update position and color attributes
     this._updatePointCloudBuffers(
@@ -624,8 +627,8 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       const z = zReader(view, pointOffset);
       positionAttribute.setXYZ(i, x, y, z);
       if (settings.stixel) {
-        stixelPositionAttribute?.setXYZ(i*2, x, y, z);
-        stixelPositionAttribute?.setXYZ(i*2+1, x, y, 0);
+        stixelPositionAttribute.setXYZ(i*2, x, y, z);
+        stixelPositionAttribute.setXYZ(i*2+1, x, y, 0);
       }
     }
 
@@ -639,8 +642,8 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
         const a = (alphaReader(view, pointOffset) * 255) | 0;
         colorAttribute.setXYZW(i, r, g, b, a);
         if (settings.stixel) {
-          stixelColorAttribute?.setXYZW(i*2, r, g, b, a);
-          stixelColorAttribute?.setXYZW(i*2+1, r, g, b, a);
+          stixelColorAttribute.setXYZW(i*2, r, g, b, a);
+          stixelColorAttribute.setXYZW(i*2+1, r, g, b, a);
         }
       }
     } else {
@@ -672,8 +675,8 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
         const a = (tempColor.a * 255) | 0;
         colorAttribute.setXYZW( i, r, g, b, a);
         if (settings.stixel) {
-          stixelColorAttribute?.setXYZW(i*2, r, g, b, a);
-          stixelColorAttribute?.setXYZW(i*2+1, r, g, b, a);
+          stixelColorAttribute.setXYZW(i*2, r, g, b, a);
+          stixelColorAttribute.setXYZW(i*2+1, r, g, b, a);
         }
       }
     }
@@ -821,17 +824,18 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
         entry.points.geometry.dispose();
         this.remove(entry.points);
       }
-      const stixelsHistory = this.userData.stixelsHistory;
-      for (const entry of stixelsHistory.splice(0, stixelsHistory.length - 1)) {
-        entry.stixels.geometry.dispose();
-        this.remove(entry.stixels);
+      if (this.userData.pointCloud) {
+        const stixelsHistory = this.userData.stixelsHistory!;
+        for (const entry of stixelsHistory.splice(0, stixelsHistory.length - 1)) {
+          entry.stixels.geometry.dispose();
+          this.remove(entry.stixels);
+        }
       }
       return;
     }
 
     // Remove expired entries from the history of points when decayTime is enabled
     const pointsHistory = this.userData.pointsHistory;
-    const stixelsHistory = this.userData.stixelsHistory;
     const decayTime = this.userData.settings.decayTime;
     const expireTime =
       decayTime > 0 ? currentTime - BigInt(Math.round(decayTime * 1e9)) : MAX_DURATION;
@@ -841,15 +845,19 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
       entry.points.geometry.dispose();
     }
 
-    while (stixelsHistory.length > 1 && stixelsHistory[0]!.receiveTime < expireTime) {
-      const entry = this.userData.stixelsHistory.shift()!;
-      this.remove(entry.stixels);
-      entry.stixels.geometry.dispose();
+    if (this.userData.pointCloud) {
+      const stixelsHistory = this.userData.stixelsHistory!;
+      while (stixelsHistory.length > 1 && stixelsHistory[0]!.receiveTime < expireTime) {
+        const entry = this.userData.stixelsHistory!.shift()!;
+        this.remove(entry.stixels);
+        entry.stixels.geometry.dispose();
+      }
     }
 
     // Update the pose on each THREE.Points entry
     let hadTfError = false;
-    for (const entry of pointsHistory) {
+    for (let i = 0; i < pointsHistory.length; i++) {
+      const entry = pointsHistory[i]!;
       const srcTime = entry.messageTime;
       const frameId = this.userData.frameId;
       const updated = updatePose(
@@ -865,6 +873,11 @@ export class PointCloudAndLaserScanRenderable extends Renderable<PointCloudAndLa
         const message = missingTransformMessage(renderFrameId, fixedFrameId, frameId);
         this.renderer.settings.errors.add(path, MISSING_TRANSFORM, message);
         hadTfError = true;
+      }
+      if (this.userData.settings.stixel && this.userData.pointCloud) {
+        const stixelEntry = this.userData.stixelsHistory![i]!.stixels;
+        stixelEntry.position.copy(pointsHistory[i]!.points.position);
+        stixelEntry.rotation.copy(pointsHistory[i]!.points.rotation);
       }
     }
 
@@ -971,7 +984,7 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
     const receiveTime = toNanoSec(messageEvent.receiveTime);
     const messageTime = toNanoSec(pointCloud.timestamp);
     const frameId = pointCloud.frame_id;
-    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId, false);
+    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId);
   };
 
   private handleRosPointCloud = (messageEvent: PartialMessageEvent<PointCloud2>): void => {
@@ -980,7 +993,7 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
     const receiveTime = toNanoSec(messageEvent.receiveTime);
     const messageTime = toNanoSec(pointCloud.header.stamp);
     const frameId = pointCloud.header.frame_id;
-    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId, true);
+    this.handlePointCloud(topic, pointCloud, receiveTime, messageTime, messageEvent.message as RosObject, frameId);
   };
 
   private handlePointCloud(
@@ -990,7 +1003,6 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
     messageTime: bigint,
     originalMessage: RosObject,
     frameId: string,
-    isPointCloud2: boolean,
   ) {
     let renderable = this.renderables.get(topic);
     if (!renderable) {
@@ -1063,8 +1075,8 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
     // Update the mapping of topic to point cloud field names if necessary
     let fields = this.pointCloudFieldsByTopic.get(topic);
 
-    if (isPointCloud2) {
-      const pointCloud2 = pointCloud as PointCloud2
+    if ((pointCloud as any).fields != undefined) {
+      const pointCloud2 = pointCloud as PointCloud2;
       // filter count to compare only supported fields
       const numSupportedFields = pointCloud2.fields.reduce((numSupported, field) => {
         return numSupported + (isSupportedField(field) ? 1 : 0);
@@ -1125,10 +1137,6 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
       geometry.createAttribute("position", Float32Array, 1);
       geometry.createAttribute("color", Uint8Array, 4, true);
 
-      const stixelGeometry = createStixelGeometry(topic, THREE.DynamicDrawUsage);
-      const stixelMaterial = createStixelMaterial(settings);
-      const stixels = createStixels(topic, laserScan.pose, stixelGeometry, stixelMaterial);
-
       const material = new LaserScanMaterial();
       const pickingMaterial = new LaserScanMaterial({ picking: true });
       const instancePickingMaterial = new LaserScanInstancePickingMaterial();
@@ -1159,11 +1167,8 @@ export class PointCloudsAndLaserScans extends SceneExtension<PointCloudAndLaserS
         material,
         pickingMaterial,
         instancePickingMaterial,
-        stixelsHistory: [{ receiveTime, messageTime, stixels }],
-        stixelMaterial,
       });
       renderable.add(points);
-      renderable.add(stixels);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);
@@ -1222,6 +1227,7 @@ export function createStixelMaterial(
   const material = new THREE.LineBasicMaterial({
     vertexColors: true,
     transparent,
+    depthWrite: true,
   });
   return material;
 }
