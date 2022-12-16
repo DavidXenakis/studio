@@ -431,7 +431,7 @@ export class RenderObjectHistory<ParentRenderable extends Renderable<RenderObjec
 
   public clearHistory(): void {
     // removes all but the last element of the array, which would be the current object used in rendering
-    for (const entry of this.history.splice(0, history.length - 1)) {
+    for (const entry of this.history.splice(0, this.history.length - 1)) {
       entry.object3d.geometry.dispose();
       this.renderable.remove(entry.object3d);
     }

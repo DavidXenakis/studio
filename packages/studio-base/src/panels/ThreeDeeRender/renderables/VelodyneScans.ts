@@ -5,7 +5,10 @@
 import { toNanoSec, toSec } from "@foxglove/rostime";
 import { NumericType, PointCloud as FoxglovePointCloud } from "@foxglove/schemas";
 import { MessageEvent, SettingsTreeAction } from "@foxglove/studio";
-import { PointCloudRenderable } from "@foxglove/studio-base/panels/ThreeDeeRender/renderables/PointClouds";
+import {
+  createStixelMaterial,
+  PointCloudRenderable,
+} from "@foxglove/studio-base/panels/ThreeDeeRender/renderables/PointClouds";
 import type { RosObject } from "@foxglove/studio-base/players/types";
 import { VelodynePacket, VelodyneScan } from "@foxglove/studio-base/types/Messages";
 import {
@@ -34,8 +37,10 @@ import {
   POINT_CLOUD_REQUIRED_FIELDS,
 } from "./pointExtensionUtils";
 
-type LayerSettingsVelodyneScans = LayerSettingsPointExtension;
-const DEFAULT_SETTINGS = DEFAULT_POINT_SETTINGS;
+type LayerSettingsVelodyneScans = LayerSettingsPointExtension & {
+  stixelsEnabled: boolean;
+};
+const DEFAULT_SETTINGS = { ...DEFAULT_POINT_SETTINGS, stixelsEnabled: false };
 
 export function pointFieldDataTypeToNumericType(type: PointFieldDataType): NumericType {
   switch (type) {
@@ -144,6 +149,11 @@ export class VelodyneScans extends SceneExtension<PointCloudRenderable> {
         messageFields,
         config,
       );
+      node.fields!.stixelsEnabled = {
+        label: "Stixel view",
+        input: "boolean",
+        value: config.stixelsEnabled ?? DEFAULT_SETTINGS.stixelsEnabled,
+      };
       node.handler = handler;
       node.icon = "Points";
       entries.push({ path: ["topics", topic.name], node });
@@ -222,6 +232,7 @@ export class VelodyneScans extends SceneExtension<PointCloudRenderable> {
       const material = pointCloudMaterial(settings);
       const pickingMaterial = createPickingMaterial(settings);
       const instancePickingMaterial = createInstancePickingMaterial(settings);
+      const stixelMaterial = createStixelMaterial(settings);
 
       const messageTime = toNanoSec(pointCloud.timestamp);
       renderable = new PointCloudRenderable(topic, this.renderer, {
@@ -237,6 +248,7 @@ export class VelodyneScans extends SceneExtension<PointCloudRenderable> {
         material,
         pickingMaterial,
         instancePickingMaterial,
+        stixelMaterial,
       });
 
       this.add(renderable);
