@@ -276,6 +276,7 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
 
     latestPointsEntry.receiveTime = receiveTime;
     latestPointsEntry.messageTime = messageTime;
+    latestPointsEntry.object3d.userData.pose = getPose(pointCloud);
 
     const pointCount = Math.trunc(pointCloud.data.length / getStride(pointCloud));
     const latestPoints = latestPointsEntry.object3d;
