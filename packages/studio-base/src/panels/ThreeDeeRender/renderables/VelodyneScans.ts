@@ -2,8 +2,6 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import * as THREE from "three";
-
 import { toNanoSec, toSec } from "@foxglove/rostime";
 import { NumericType, PointCloud as FoxglovePointCloud } from "@foxglove/schemas";
 import { MessageEvent, SettingsTreeAction } from "@foxglove/studio";
@@ -27,10 +25,8 @@ import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose } from "../transforms";
 import {
   autoSelectColorField,
-  createGeometry,
   createInstancePickingMaterial,
   createPickingMaterial,
-  createPoints,
   DEFAULT_POINT_SETTINGS,
   LayerSettingsPointExtension,
   pointSettingsNode,
@@ -223,23 +219,9 @@ export class VelodyneScans extends SceneExtension<PointCloudRenderable> {
         });
       }
 
-      const isDecay = settings.decayTime > 0;
-      const geometry = createGeometry(
-        topic,
-        isDecay ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage,
-      );
-
       const material = pointCloudMaterial(settings);
       const pickingMaterial = createPickingMaterial(settings);
       const instancePickingMaterial = createInstancePickingMaterial(settings);
-      const points = createPoints(
-        topic,
-        pointCloud.pose,
-        geometry,
-        material,
-        pickingMaterial,
-        instancePickingMaterial,
-      );
 
       const messageTime = toNanoSec(pointCloud.timestamp);
       renderable = new PointCloudRenderable(topic, this.renderer, {
@@ -252,12 +234,10 @@ export class VelodyneScans extends SceneExtension<PointCloudRenderable> {
         topic,
         pointCloud,
         originalMessage: messageEvent.message as RosObject,
-        pointsHistory: [{ receiveTime, messageTime, points }],
         material,
         pickingMaterial,
         instancePickingMaterial,
       });
-      renderable.add(points);
 
       this.add(renderable);
       this.renderables.set(topic, renderable);
