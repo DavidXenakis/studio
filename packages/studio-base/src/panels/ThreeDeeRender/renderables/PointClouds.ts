@@ -296,6 +296,7 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
 
     latestStixelEntry.receiveTime = receiveTime;
     latestStixelEntry.messageTime = messageTime;
+    latestStixelEntry.object3d.userData.pose = latestPointsEntry.object3d.userData.pose;
     if (settings.stixelsEnabled) {
       latestStixelEntry.object3d.geometry.resize(pointCount * 2);
     } else {
