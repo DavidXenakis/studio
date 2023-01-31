@@ -588,13 +588,15 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
     if (settings.colorMode === "rgba-fields") {
       for (let i = 0; i < pointCount; i++) {
         const pointOffset = i * pointStep;
-        colorAttribute.setXYZW(
-          i,
-          redReader(view, pointOffset),
-          greenReader(view, pointOffset),
-          blueReader(view, pointOffset),
-          alphaReader(view, pointOffset),
-        );
+        const r = redReader(view, pointOffset);
+        const g = greenReader(view, pointOffset);
+        const b = blueReader(view, pointOffset);
+        const a = alphaReader(view, pointOffset);
+        colorAttribute.setXYZW(i, r, g, b, a);
+        if (settings.stixelsEnabled) {
+          stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
+          stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
+        }
       }
     } else {
       // Iterate the point cloud data to determine min/max color values (if needed)
@@ -620,6 +622,16 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
         const colorValue = packedColorReader(view, pointOffset);
         colorConverter(tempColor, colorValue);
         colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
+        if (settings.stixelsEnabled) {
+          stixelColorAttribute.setXYZW(i * 2, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
+          stixelColorAttribute.setXYZW(
+            i * 2 + 1,
+            tempColor.r,
+            tempColor.g,
+            tempColor.b,
+            tempColor.a,
+          );
+        }
       }
     }
 
