@@ -25,6 +25,8 @@ import {
 } from "@foxglove/studio-base/panels/ThreeDeeRender/renderables/pointExtensionUtils";
 import type { RosObject, RosValue } from "@foxglove/studio-base/players/types";
 
+import { colorHasTransparency, getColorConverter } from "./pointClouds/colors";
+import { FieldReader, getReader, isSupportedField } from "./pointClouds/fieldReaders";
 import { BaseUserData, Renderable } from "../Renderable";
 import { Renderer } from "../Renderer";
 import { PartialMessage, PartialMessageEvent, SceneExtension } from "../SceneExtension";
@@ -45,8 +47,6 @@ import {
 } from "../ros";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose, Pose } from "../transforms";
-import { colorHasTransparency, getColorConverter } from "./pointClouds/colors";
-import { FieldReader, getReader, isSupportedField } from "./pointClouds/fieldReaders";
 
 type PointCloudFieldReaders = {
   xReader: FieldReader;
@@ -588,15 +588,13 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
     if (settings.colorMode === "rgba-fields") {
       for (let i = 0; i < pointCount; i++) {
         const pointOffset = i * pointStep;
-        const r = (redReader(view, pointOffset) * 255) | 0;
-        const g = (greenReader(view, pointOffset) * 255) | 0;
-        const b = (blueReader(view, pointOffset) * 255) | 0;
-        const a = (alphaReader(view, pointOffset) * 255) | 0;
-        colorAttribute.setXYZW(i, r, g, b, a);
-        if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
-          stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
-        }
+        colorAttribute.setXYZW(
+          i,
+          redReader(view, pointOffset),
+          greenReader(view, pointOffset),
+          blueReader(view, pointOffset),
+          alphaReader(view, pointOffset),
+        );
       }
     } else {
       // Iterate the point cloud data to determine min/max color values (if needed)
@@ -621,15 +619,7 @@ export class PointCloudRenderable extends Renderable<PointCloudUserData> {
         const pointOffset = i * pointStep;
         const colorValue = packedColorReader(view, pointOffset);
         colorConverter(tempColor, colorValue);
-        const r = (tempColor.r * 255) | 0;
-        const g = (tempColor.g * 255) | 0;
-        const b = (tempColor.b * 255) | 0;
-        const a = (tempColor.a * 255) | 0;
-        colorAttribute.setXYZW(i, r, g, b, a);
-        if (settings.stixelsEnabled) {
-          stixelColorAttribute.setXYZW(i * 2, r, g, b, a);
-          stixelColorAttribute.setXYZW(i * 2 + 1, r, g, b, a);
-        }
+        colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
       }
     }
 
@@ -837,7 +827,7 @@ export class PointClouds extends SceneExtension<PointCloudRenderable> {
 }
 
 function pointFieldTypeName(type: PointFieldType): string {
-  return PointFieldType[type] ?? `${type}`;
+  return PointFieldType[type as number] ?? `${type}`;
 }
 
 function pointFieldWidth(type: PointFieldType): number {

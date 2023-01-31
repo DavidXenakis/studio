@@ -2,15 +2,8 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import AddIcon from "@mui/icons-material/Add";
-import ArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import ArrowLeftIcon from "@mui/icons-material/KeyboardArrowLeft";
-import ArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
-import ArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
-import ListIcon from "@mui/icons-material/List";
-import { Button, SvgIconProps, ToggleButton } from "@mui/material";
 import { clamp } from "lodash";
-import { ComponentProps, useCallback, useMemo, useRef } from "react";
+import { ComponentProps, useCallback, useRef } from "react";
 import tinycolor from "tinycolor2";
 import { makeStyles } from "tss-react/mui";
 
@@ -109,7 +102,7 @@ const useStyles = makeStyles<StyleProps, "container" | "toggleButton">()(
       alignItems: "center",
       overflow: "auto",
       display: "grid",
-      gridTemplateColumns: "auto minmax(max-content, 1fr) 1fr auto",
+      gridTemplateColumns: "auto minmax(max-content, 1fr) 1fr",
     },
     dragHandle: {
       userSelect: "none",
@@ -118,14 +111,6 @@ const useStyles = makeStyles<StyleProps, "container" | "toggleButton">()(
       "&:hover": {
         borderColor: palette.action.selected,
       },
-    },
-    footer: {
-      gridColumn: "1/-1",
-      padding: spacing(0.5),
-    },
-    addButton: {
-      minWidth: 100,
-      backgroundColor: `${palette.action.hover} !important`,
     },
     toggleButton: {
       fontSize: typography.pxToRem(20),
@@ -148,41 +133,6 @@ export function NewPlotLegend(props: Props): JSX.Element {
     showPlotValuesInLegend,
   } = props;
   const { classes, cx } = useStyles({ legendDisplay, sidebarDimension });
-
-  const toggleLegend = useCallback(
-    () => saveConfig({ showLegend: !showLegend }),
-    [showLegend, saveConfig],
-  );
-
-  const addSeries = useCallback(() => {
-    saveConfig((old) => ({
-      ...old,
-      paths: [
-        ...old.paths,
-        {
-          timestampMethod: "receiveTime",
-          value: "",
-          label: `Series ${old.paths.length + 1}`,
-          enabled: true,
-        },
-      ],
-    }));
-  }, [saveConfig]);
-
-  const toggleIcon = useMemo(() => {
-    const iconProps = {
-      fontSize: "inherit",
-    } as Partial<SvgIconProps>;
-
-    switch (legendDisplay) {
-      case "floating":
-        return <ListIcon {...iconProps} />;
-      case "left":
-        return showLegend ? <ArrowLeftIcon {...iconProps} /> : <ArrowRightIcon {...iconProps} />;
-      case "top":
-        return showLegend ? <ArrowUpIcon {...iconProps} /> : <ArrowDownIcon {...iconProps} />;
-    }
-  }, [legendDisplay, showLegend]);
 
   const dragStart = useRef({ x: 0, y: 0, sidebarDimension: 0 });
 
@@ -224,20 +174,6 @@ export function NewPlotLegend(props: Props): JSX.Element {
     [saveConfig],
   );
 
-  const addSeriesFooter = (
-    <footer className={classes.footer}>
-      <Button
-        className={classes.addButton}
-        size="small"
-        startIcon={<AddIcon />}
-        fullWidth
-        onClick={() => addSeries()}
-      >
-        Add series
-      </Button>
-    </footer>
-  );
-
   return (
     <div
       className={cx(classes.root, {
@@ -246,84 +182,66 @@ export function NewPlotLegend(props: Props): JSX.Element {
         [classes.rootTop]: legendDisplay === "top",
       })}
     >
-      <Stack
-        direction={legendDisplay === "top" ? "column" : "row"}
-        alignItems={legendDisplay === "floating" ? "flex-start" : undefined}
-        gap={0.5}
-        fullHeight
-      >
-        <ToggleButton
-          className={classes.toggleButton}
-          aria-label={showLegend ? "Show legend" : "Hide legend"}
-          value={showLegend ? "show" : "hide"}
-          onClick={toggleLegend}
-          size="small"
+      {showLegend && (
+        <Stack
+          flexGrow={1}
+          gap={0.5}
+          overflow="auto"
+          fullHeight={legendDisplay === "floating"}
+          style={{
+            height: legendDisplay === "top" ? Math.round(sidebarDimension) : undefined,
+            width: legendDisplay === "left" ? Math.round(sidebarDimension) : undefined,
+          }}
         >
-          {toggleIcon}
-        </ToggleButton>
-        {showLegend && (
           <Stack
-            flexGrow={1}
-            gap={0.5}
-            overflow="auto"
+            flex="auto"
+            fullWidth
             fullHeight={legendDisplay === "floating"}
-            style={{
-              height: legendDisplay === "top" ? Math.round(sidebarDimension) : undefined,
-              width: legendDisplay === "left" ? Math.round(sidebarDimension) : undefined,
-            }}
+            overflow={legendDisplay === "floating" ? "auto" : undefined}
           >
-            <Stack
-              flex="auto"
-              fullWidth
-              fullHeight={legendDisplay === "floating"}
-              overflow={legendDisplay === "floating" ? "auto" : undefined}
-            >
-              <div className={classes.container}>
-                {paths.map((path, index) => (
-                  <NewPlotLegendRow
-                    key={index}
-                    index={index}
-                    path={path}
-                    paths={paths}
-                    hasMismatchedDataLength={pathsWithMismatchedDataLengths.includes(path.value)}
-                    datasets={datasets}
-                    currentTime={currentTime}
-                    savePaths={savePaths}
-                    showPlotValuesInLegend={showPlotValuesInLegend}
-                  />
-                ))}
-                {legendDisplay === "floating" && addSeriesFooter}
-              </div>
-              {legendDisplay !== "floating" && addSeriesFooter}
-            </Stack>
+            <div className={classes.container}>
+              {paths.map((path, index) => (
+                <NewPlotLegendRow
+                  key={index}
+                  index={index}
+                  path={path}
+                  paths={paths}
+                  hasMismatchedDataLength={pathsWithMismatchedDataLengths.includes(path.value)}
+                  datasets={datasets}
+                  currentTime={currentTime}
+                  savePaths={savePaths}
+                  showPlotValuesInLegend={showPlotValuesInLegend}
+                />
+              ))}
+            </div>
           </Stack>
-        )}
-        {legendDisplay !== "floating" && (
-          <div
-            className={classes.dragHandle}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            style={
-              legendDisplay === "left"
-                ? {
-                    marginLeft: -6,
-                    cursor: "ew-resize",
-                    borderRightWidth: 2,
-                    height: "100%",
-                    width: 4,
-                  }
-                : {
-                    marginTop: -6,
-                    cursor: "ns-resize",
-                    borderBottomWidth: 2,
-                    width: "100%",
-                    height: 4,
-                  }
-            }
-          />
-        )}
-      </Stack>
+        </Stack>
+      )}
+      {legendDisplay !== "floating" && (
+        <div
+          className={classes.dragHandle}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          style={
+            legendDisplay === "left"
+              ? {
+                  marginLeft: -6,
+                  cursor: "ew-resize",
+                  borderRightWidth: 2,
+                  height: "100%",
+                  width: 4,
+                }
+              : {
+                  marginTop: -6,
+                  cursor: "ns-resize",
+                  borderBottomWidth: 2,
+                  width: "100%",
+                  height: 4,
+                }
+          }
+        />
+      )}
     </div>
   );
 }

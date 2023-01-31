@@ -23,13 +23,13 @@ import {
   APP_BAR_FOREGROUND_COLOR,
 } from "@foxglove/studio-base/src/components/AppBar/constants";
 
-import pkgInfo from "../../package.json";
-import { encodeRendererArg } from "../common/rendererArgs";
 import StudioAppUpdater from "./StudioAppUpdater";
 import getDevModeIcon from "./getDevModeIcon";
 import { getAppSetting } from "./settings";
 import { simulateUserClick } from "./simulateUserClick";
 import { getTelemetrySettings } from "./telemetry";
+import pkgInfo from "../../package.json";
+import { encodeRendererArg } from "../common/rendererArgs";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 
@@ -101,7 +101,7 @@ type ClearableMenu = Menu & { clear: () => void };
 
 function newStudioWindow(deepLinks: string[] = []): BrowserWindow {
   const { crashReportingEnabled, telemetryEnabled } = getTelemetrySettings();
-  const enableNewUI = getAppSetting<boolean>(AppSetting.ENABLE_NEW_UI) ?? false;
+  const enableNewTopNav = getAppSetting<boolean>(AppSetting.ENABLE_NEW_TOPNAV) ?? false;
 
   const preloadPath = path.join(app.getAppPath(), "main", "preload.js");
 
@@ -115,10 +115,10 @@ function newStudioWindow(deepLinks: string[] = []): BrowserWindow {
     minHeight: 250,
     autoHideMenuBar: true,
     title: pkgInfo.productName,
-    frame: enableNewUI && isLinux ? false : true,
-    titleBarStyle: enableNewUI ? "hidden" : "default",
+    frame: enableNewTopNav && isLinux ? false : true,
+    titleBarStyle: enableNewTopNav ? "hidden" : "default",
     trafficLightPosition:
-      isMac && enableNewUI ? { x: macTrafficLightInset, y: macTrafficLightInset } : undefined,
+      isMac && enableNewTopNav ? { x: macTrafficLightInset, y: macTrafficLightInset } : undefined,
     titleBarOverlay: isWindows
       ? {
           height: APP_BAR_HEIGHT,

@@ -362,6 +362,12 @@ declare module "@foxglove/studio" {
      * the representation of the panel settings in the editor.
      */
     updatePanelSettingsEditor(settings: Readonly<SettingsTree>): void;
+
+    /**
+     * Updates the panel's default title. Users can always override the default title by editing it
+     * manually. A value of `undefined` will display the panel's name in the title bar.
+     */
+    setDefaultPanelTitle(defaultTitle: string | undefined): void;
   };
 
   export type ExtensionPanelRegistration = {
@@ -406,11 +412,13 @@ declare module "@foxglove/studio" {
 
   export type SettingsIcon =
     | "Add"
+    | "Addchart"
     | "Background"
     | "Camera"
     | "Cells"
     | "Check"
     | "Circle"
+    | "Clear"
     | "Clock"
     | "Collapse"
     | "Cube"
@@ -585,6 +593,13 @@ declare module "@foxglove/studio" {
      * Optional icon to display with the action.
      */
     icon?: SettingsIcon;
+
+    /**
+     * Specifies whether the item is rendered as an inline action or as an item in the
+     * context menu. Defaults to "menu" if not specified. Inline items will be rendered
+     * as an icon only if their icon is specified.
+     */
+    display?: "menu" | "inline";
   };
 
   export type SettingsTreeNodeActionDivider = { type: "divider" };

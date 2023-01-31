@@ -7,9 +7,17 @@ import * as THREE from "three";
 import { Time, toNanoSec } from "@foxglove/rostime";
 import { LaserScan as FoxgloveLaserScan } from "@foxglove/schemas";
 import { SettingsTreeAction } from "@foxglove/studio";
+import {
+  createPoints,
+  DEFAULT_POINT_SETTINGS,
+  LayerSettingsPointExtension,
+  pointSettingsNode,
+  RenderObjectHistory,
+} from "@foxglove/studio-base/panels/ThreeDeeRender/renderables/pointExtensionUtils";
 import type { RosObject, RosValue } from "@foxglove/studio-base/players/types";
 import { emptyPose } from "@foxglove/studio-base/util/Pose";
 
+import { colorHasTransparency, getColorConverter } from "./pointClouds/colors";
 import { DynamicBufferGeometry } from "../DynamicBufferGeometry";
 import { BaseUserData, Renderable } from "../Renderable";
 import { Renderer } from "../Renderer";
@@ -20,14 +28,6 @@ import { normalizeFloat32Array, normalizeTime, normalizePose } from "../normaliz
 import { LASERSCAN_DATATYPES as ROS_LASERSCAN_DATATYPES, LaserScan as RosLaserScan } from "../ros";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { Pose } from "../transforms";
-import { colorHasTransparency, getColorConverter } from "./pointClouds/colors";
-import {
-  createPoints,
-  DEFAULT_POINT_SETTINGS,
-  LayerSettingsPointExtension,
-  pointSettingsNode,
-  RenderObjectHistory,
-} from "./pointExtensionUtils";
 
 type LayerSettingsLaserScan = LayerSettingsPointExtension;
 const DEFAULT_SETTINGS = DEFAULT_POINT_SETTINGS;
@@ -247,13 +247,7 @@ class LaserScanRenderable extends Renderable<LaserScanUserData> {
     for (let i = 0; i < ranges.length; i++) {
       const colorValue = colorField === "range" ? ranges[i]! : intensities[i] ?? 0;
       colorConverter(tempColor, colorValue);
-      colorAttribute.setXYZW(
-        i,
-        (tempColor.r * 255) | 0,
-        (tempColor.g * 255) | 0,
-        (tempColor.b * 255) | 0,
-        (tempColor.a * 255) | 0,
-      );
+      colorAttribute.setXYZW(i, tempColor.r, tempColor.g, tempColor.b, tempColor.a);
     }
 
     rangeAttribute.needsUpdate = true;
